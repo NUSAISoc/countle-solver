@@ -275,27 +275,47 @@ class CountleEngine:
             lines.append(f"  {i}. {state.move_description}")
         return "\n".join(lines)
 
-    def generate_target(self) -> int:
-        # Perform a random walk of operations to generate a target
+    def generate_target(self, max_mc_steps = 100) -> int:
+        '''
+        To prevent cheesing and creating overly easy targets, we WANT TO generate
+        the target by computing the "numerical closure" of the generated numbers
+        under valid operations.
+
+        However, that would require exponential time/space in the worst case to compute.
+        So instead, we will sample the closure by performing Monte Carlo random walks
+        through the space of reachable numbers.
+
+        This way a solution is guaranteed, and it is increasingly unlikely
+        that some trivial target is chosen as we increase the number of steps.
+        '''
         numbers = [self.rng.randint(1, self.max_number) for _ in range(self.n)]
         num_steps = self.rng.randint(self.min_moves, self.n - 1)
         current_numbers = numbers.copy()
+        # print(f"Generating target from numbers: {numbers} with {num_steps} steps")
 
-        print(f"Generating target from numbers: {numbers} with {num_steps} steps")
-        for _ in range(num_steps):
-            valid_moves = self.get_valid_moves(current_numbers)
-            if not valid_moves:
-                break
-            # print(list(filter(lambda m: m.move_type == MoveType.OPERATION, valid_moves)))
-            move = self.rng.choice(list(filter(lambda m: m.move_type == MoveType.OPERATION, valid_moves)))
-            
-            # Update current numbers
-            current_numbers.remove(move.op1)
-            current_numbers.remove(move.op2)
-            current_numbers.append(move.operation.apply(move.op1, move.op2))
-            print(f"Applied move: {move}, New numbers: {current_numbers}")
+        approx_closure = {n: 0 for n in current_numbers}
+        for _ in range(max_mc_steps):
+            temp_numbers = current_numbers.copy()
+            for step in range(self.n - 1):
+                valid_moves = self.get_valid_moves(temp_numbers)
+                if not valid_moves:
+                    break
+                move = self.rng.choice(list(filter(lambda m: m.move_type == MoveType.OPERATION, valid_moves)))
+                
+                # Update current numbers
+                result = move.operation.apply(move.op1, move.op2)
+                temp_numbers.remove(move.op1)
+                temp_numbers.remove(move.op2)
+                temp_numbers.append(result)
+                
+                # Track the result in the approx closure
+                if result < approx_closure.get(result, float('inf')):
+                    approx_closure[result] = step  # Store the step count when first reached
         
-        return self.rng.choice(list(set(current_numbers) - set(numbers)))
+        candidates = [num for num, step in approx_closure.items() if self.min_moves <= step < self.n - 1]
+        # print(f"Generated candidates for target from closure: {candidates}")
+        
+        return self.rng.choice(list(set(candidates) - set(numbers)))
     
     def generate_level(self) -> GameState:
         '''
