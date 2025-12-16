@@ -5,6 +5,7 @@ from typing import List, Tuple, Optional
 
 from game.state import GameState
 from game.types import MoveType, Operation
+from game.move import GameMove
 
 class CountleEngine:
     '''
@@ -42,14 +43,8 @@ class CountleEngine:
         self.seed = seed
         self.rng = random.Random(seed)
 
-        (numbers, target) = self.generate_level()
-
-        self._internal_state = GameState(
-            numbers = numbers,
-            move_history = [],
-            target = target
-        )
-        self.history = [self._internal_state]
+        self.generate_level()
+        self.reset_history()
         
     @property
     def current_numbers(self) -> List[int]:
@@ -57,11 +52,16 @@ class CountleEngine:
         return self._internal_state.numbers
     
     @property
+    def target(self) -> int:
+        """Get current target number."""
+        return self._internal_state.target
+    
+    @property
     def is_terminal(self) -> bool:
         """Check if game is in terminal state."""
         return self.won or len(self.current_numbers) == 1
     
-    def get_valid_moves(self, numbers: Optional[List[int]] = None) -> List[Tuple[int, int, Operation, int]]:
+    def get_valid_moves(self, numbers: Optional[List[int]] = None) -> List[GameMove]:
         """
         Get all valid moves from current state.
         
@@ -69,12 +69,16 @@ class CountleEngine:
             numbers: Optional list of numbers to use. If None, uses current_numbers.
             
         Returns:
-            List of (num1, num2, operation, result) tuples
+            List of GameMove tuples
         """
         if numbers is None:
             numbers = self.current_numbers
             
-        valid_moves = []
+        # So long as move history is not empty, there are valid moves.
+        valid_moves = [
+            GameMove(MoveType.ROLLBACK, op1 = i)
+            for i in range(1, self.n - len(numbers))
+        ]
         
         # Try all pairs of numbers
         for i in range(len(numbers)):
@@ -87,8 +91,16 @@ class CountleEngine:
                 # Try all operations
                 for op in Operation:
                     result = op.apply(num1, num2)
+                    # i.e. result is valid.
                     if result is not None:
-                        valid_moves.append((num1, num2, op, result))
+                        valid_moves.append(
+                            GameMove(
+                                MoveType.OPERATION, 
+                                op1 = num1, 
+                                op2 = num2, 
+                                operation = op
+                            ),
+                        )
         
         return valid_moves
     
@@ -160,6 +172,7 @@ class CountleEngine:
         move_desc = f"{num1} {op_symbol} {num2} = {result}"
         new_state = GameState(
             numbers = new_numbers, 
+            move_history = self.history + [move_desc],
             move_description = move_desc,
             target = self._internal_state.target,
         )
@@ -170,7 +183,7 @@ class CountleEngine:
         if result == self._internal_state.target:
             self.won = True
             reward += self.REWARDS['success']
-            message = f"{move_desc} -> WON! (Reached {self.target})"
+            message = f"{move_desc} -> WON! (Reached {self._internal_state.target})"
         else:
             message = f"Valid Move: {move_desc}"
         
@@ -211,7 +224,7 @@ class CountleEngine:
         message = f"Rolled back {steps_to_delete} step(s) to step {step_index}"
         return reward, message
     
-    def execute_move(self, move: Tuple[MoveType, Tuple]) -> Tuple[int, str]:
+    def execute_move(self, move: GameMove) -> Tuple[int, str]:
         """
         Execute a parsed move.
         
@@ -221,15 +234,17 @@ class CountleEngine:
         Returns:
             (reward, message) tuple
         """
-        move_type, data = move
-        
+
+        # print(f"Executing move: {move.move_type} {move.op1} {move.operation} {move.op2}")
         # Step 1: Route action based on move type
-        if move_type == MoveType.OPERATION:
-            num1, num2, op_symbol = data
-            return self.execute_operation(num1, num2, op_symbol)
-        elif move_type == MoveType.ROLLBACK:
-            step_index = data[0]
-            return self.execute_rollback(step_index)
+        if move.move_type == MoveType.OPERATION:
+            return self.execute_operation(
+                move.op1, 
+                move.op2, 
+                move.operation.symbol
+            )
+        elif move.move_type == MoveType.ROLLBACK:
+            return self.execute_rollback(move.op1)
         else:
             return self.REWARDS['invalid'], "Unknown move type"
     
@@ -237,8 +252,8 @@ class CountleEngine:
         """Get a summary of current game state."""
         lines = [
             "----- Current Game State -----",
-            f"Target: {self.target}",
-            f"Current numbers: {self.current_numbers}",
+            f"Target: {self._internal_state.target}",
+            f"Current numbers: {self._internal_state.numbers}",
             f"Moves made: {self.move_count}",
             f"Total reward: {self.total_reward}"
         ]
@@ -260,22 +275,52 @@ class CountleEngine:
             lines.append(f"  {i}. {state.move_description}")
         return "\n".join(lines)
 
-    def generate_level(self) -> int:
+    def generate_target(self) -> int:
         # Perform a random walk of operations to generate a target
         numbers = [self.rng.randint(1, self.max_number) for _ in range(self.n)]
         num_steps = self.rng.randint(self.min_moves, self.n - 1)
         current_numbers = numbers.copy()
+
+        print(f"Generating target from numbers: {numbers} with {num_steps} steps")
         for _ in range(num_steps):
             valid_moves = self.get_valid_moves(current_numbers)
             if not valid_moves:
                 break
-            num1, num2, op, result = self.rng.choice(valid_moves)
+            # print(list(filter(lambda m: m.move_type == MoveType.OPERATION, valid_moves)))
+            move = self.rng.choice(list(filter(lambda m: m.move_type == MoveType.OPERATION, valid_moves)))
+            
             # Update current numbers
-            current_numbers.remove(num1)
-            current_numbers.remove(num2)
-            current_numbers.append(result)
-        target = self.rng.choice(current_numbers)
-        return numbers, target
+            current_numbers.remove(move.op1)
+            current_numbers.remove(move.op2)
+            current_numbers.append(move.operation.apply(move.op1, move.op2))
+            print(f"Applied move: {move}, New numbers: {current_numbers}")
+        
+        return self.rng.choice(list(set(current_numbers) - set(numbers)))
+    
+    def generate_level(self) -> GameState:
+        '''
+        Generate a new level with random numbers and a target.
+        
+        Returns:
+            (numbers, target) tuple
+        '''
+        numbers = [self.rng.randint(1, self.max_number) for _ in range(self.n)]
+        target = self.generate_target()
+
+
+        self._internal_state = GameState(
+            numbers = numbers, 
+            move_history = None, 
+            target = target
+        )
+
+        return self._internal_state
+    
+    def reset_history(self):
+        '''
+        Reset the move history to the current internal state.
+        '''
+        self.history = [self._internal_state]
 
     '''
 

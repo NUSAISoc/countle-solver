@@ -6,7 +6,6 @@ class MoveType(Enum):
     OPERATION = "operation"
     ROLLBACK = "rollback"
 
-
 class Operation(Enum):
     """Supported arithmetic operations."""
     ADD = ('+', int.__add__)
