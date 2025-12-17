@@ -2,7 +2,7 @@ from collections import deque
 from typing import List, Tuple, Dict, Optional
 
 from game.state import GameState
-from game.types import Operation
+from game.types import MoveType
 from game.engine import CountleEngine
 from solver.base import BaseSolver
 
@@ -33,14 +33,13 @@ class BFSSolver(BaseSolver):
         if initial_state is None:
             # Generate a new level if no state provided
             print("No initial state provided, generating a new level.")
-            numbers, target = self.game.generate_level()
-            initial_state = GameState(numbers = numbers, target = target)
+            initial_state = self.game.reset()
         
         target = initial_state.target
         start_numbers = tuple(sorted(initial_state.numbers))
         
         # Priority queue: (Cost, Numbers)
-        queue = deque([(0, start_numbers)])
+        queue = deque([(0, initial_state)])
         
         # came_from: current_numbers -> (parent_numbers, move_description)
         came_from: Dict[Tuple[int, ...], Tuple[Optional[Tuple[int, ...]], Optional[str]]] = {
@@ -51,48 +50,55 @@ class BFSSolver(BaseSolver):
         final_numbers = None
         
         while queue:
-            cost, current = queue.popleft()
+            cost, current_state = queue.popleft()
+            # print(f"Current Move History: {current_state}")
             
             # Check if target is reached
-            if target in current:
+            if target in current_state.numbers:
                 solution_found = True
-                final_numbers = current
+                final_numbers = tuple(sorted(current_state.numbers))
                 break
+
+            # Else check if we went too far.
+            if len(current_state.numbers) == 1:
+                continue
             
             # Generate neighbors
-            current_list = list(current)
-            for i in range(len(current_list)):
-                for j in range(len(current_list)):
-                    if i == j:
-                        continue
-                    
-                    num1, num2 = current_list[i], current_list[j]
-                    
-                    # Try all operations
-                    for op in Operation:
-                        # Pruning/Optimization:
-                        # 1. + and * are commutative.
-                        if op in [Operation.ADD, Operation.MULTIPLY] and i > j:
-                            continue
-                            
-                        result = op.apply(num1, num2)
-                        
-                        if result is not None:
-                            # Create new numbers tuple
-                            # Remove num1 and num2, add result, sort
-                            new_nums_list = []
-                            for k, n in enumerate(current_list):
-                                if k != i and k != j:
-                                    new_nums_list.append(n)
-                            new_nums_list.append(result)
-                            new_nums = tuple(sorted(new_nums_list))
-                            queue.append((cost + 1, new_nums))
+            valid_moves = self.game.get_valid_moves(
+                current_state
+            )
+            for move in valid_moves:
+                # We don't actually need to rollback if we are doing BFS.
+                # If the path is unsuccessful, we just discard it.
+                if move.move_type != MoveType.OPERATION:
+                    continue
+                
+                result = move.operation.apply(move.op1, move.op2)
+                new_numbers = current_state.numbers.copy()
+                new_numbers.remove(move.op1)
+                new_numbers.remove(move.op2)
+                new_numbers.append(result)
+                new_numbers_tuple = tuple(sorted(new_numbers))
+                
+                if new_numbers_tuple not in came_from:
+                    came_from[new_numbers_tuple] = (
+                        tuple(sorted(current_state.numbers)), 
+                        # f"Applied {move.operation.name} on {move.op1} and {move.op2} to get {result}"
+                        f"{move} = {result}"
+                    )
+                    new_state = GameState(
+                        numbers=new_numbers, 
+                        move_history=(current_state.move_history or []) + [new_numbers],
+                        target=target
+                    )
+                    queue.append((cost + 1, new_state))
         
         if solution_found:
             # Reconstruct path
             path = []
             curr = final_numbers
             while curr != start_numbers:
+                print(f"Reconstructing step: {curr}")
                 parent, move_desc = came_from[curr]
                 state = GameState(
                     numbers=list(curr), 
@@ -107,4 +113,5 @@ class BFSSolver(BaseSolver):
             path.reverse()
             return True, path
         else:
+            print(f"No solution found using BFS. State: {initial_state}, Target: {target}")
             return False, []
