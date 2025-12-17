@@ -152,7 +152,7 @@ def main():
             print("Solution found! Steps:")
             for i, state in enumerate(solution_path[1:]):
                 print(
-                    f"Step {i}: Numbers: {state.numbers}, "
+                    f"Step {i + 1}: Numbers: {state.numbers}, "
                     f"Target: {state.target}, "
                     f"Move: {state.move_description}"
                 )
