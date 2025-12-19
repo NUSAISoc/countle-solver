@@ -3,7 +3,7 @@ from typing import Optional, List, Tuple
 
 from game.types import MoveType
 
-@dataclass
+@dataclass(frozen=True)
 class GameState:
     """Represents a single state in the game."""
     numbers: List[int]

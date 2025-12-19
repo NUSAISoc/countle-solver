@@ -15,7 +15,8 @@ class BaseSolver(ABC):
 
         Returns:
             A tuple containing:
-            - List of GameState objects representing the solution path.
             - Boolean indicating whether the solution was successful.
+            - If successful, a list of GameState instances representing the solution path.
+            - If unsuccessful, None.
         """
         pass
