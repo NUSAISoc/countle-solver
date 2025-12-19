@@ -48,7 +48,7 @@ class GreedySolver(BaseSolver):
             
             if best_move is None:
                 print("No valid operation moves found, failed to reach target.")
-                return False, solution_path
+                return False, None
             
             # current_state = self.game.apply_move(current_state, best_move)
             current_state, _, _, _, _ = self.game.step(best_move)

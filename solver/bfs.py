@@ -38,7 +38,7 @@ class BFSSolver(BaseSolver):
         target = initial_state.target
         start_numbers = tuple(sorted(initial_state.numbers))
         
-        # Priority queue: (Cost, Numbers)
+        # Deque: (Cost, State)
         queue = deque([(0, initial_state)])
         
         # came_from: current_numbers -> (parent_numbers, move_description)
@@ -51,7 +51,6 @@ class BFSSolver(BaseSolver):
         
         while queue:
             cost, current_state = queue.popleft()
-            # print(f"Current Move History: {current_state}")
             
             # Check if target is reached
             if target in current_state.numbers:
@@ -83,7 +82,6 @@ class BFSSolver(BaseSolver):
                 if new_numbers_tuple not in came_from:
                     came_from[new_numbers_tuple] = (
                         tuple(sorted(current_state.numbers)), 
-                        # f"Applied {move.operation.name} on {move.op1} and {move.op2} to get {result}"
                         f"{move} = {result}"
                     )
                     new_state = GameState(
@@ -114,4 +112,4 @@ class BFSSolver(BaseSolver):
             return True, path
         else:
             print(f"No solution found using BFS. State: {initial_state}, Target: {target}")
-            return False, []
+            return False, None

@@ -26,7 +26,7 @@ def get_argparser() -> argparse.ArgumentParser:
         '--strategy', 
         choices = STRATEGY_TO_SOLVER.keys(), 
         default = 'greedy',
-        help = 'Solving strategy for solve mode (default: greedy)'
+        help = 'Solving strategy for demo and solve mode (default: greedy)'
     )
     assert 'greedy' in STRATEGY_TO_SOLVER, "Default strategy must be in STRATEGY_TO_SOLVER"
 
@@ -114,17 +114,46 @@ def play_interactive(game: CountleGame):
         else:
             print("Unknown command. Type 'help' for a list of commands.")
 
-def play_demo(game: CountleGame):
-    print("Starting demo mode with the default solver...")
-    solver = GreedySolver(game)
+def play_demo(game: CountleGame, strategy: str):
+    print(f"Giving demo using strategy: {strategy}")
+    solver_class = STRATEGY_TO_SOLVER.get(strategy, GreedySolver)
+    solver = solver_class(game)
     success, solution_path = solver.solve()
     
     if success:
-        print("Demo completed successfully! Solution path:")
-        for i, state in enumerate(solution_path):
-            print(f"Step {i}: Numbers: {state.numbers}, Target: {state.target}, Move: {state.move_description}")
+        print("Solution found! Steps:")
+        for i, state in enumerate(solution_path[1:]):
+            print(
+                f"Step {i + 1}: Numbers: {state.numbers}, "
+                f"Target: {state.target}, "
+                f"Move: {state.move_description}"
+            )
     else:
-        print("Demo failed to find a solution.")
+        print("Failed to find a solution.")
+
+def play_solve(game: CountleGame, strategy: str):
+    # TODO: Would be funny if we can actually connect to countle.org and solve it.
+
+    print(f"Solving using strategy: {strategy}")
+
+    # Lowkey breaking abstraction, but oh well.
+    initial_state = game.engine._internal_state
+    
+    solver_class = STRATEGY_TO_SOLVER.get(strategy, GreedySolver)
+    solver = solver_class(game)
+    success, solution_path = solver.solve(initial_state)
+    
+    if success:
+        print("Solution found! Steps:")
+        for i, state in enumerate(solution_path[1:]):
+            print(
+                f"Step {i + 1}: Numbers: {state.numbers}, "
+                f"Target: {state.target}, "
+                f"Move: {state.move_description}"
+            )
+    else:
+        print("Failed to find a solution.")
+    
 
 def main():
     parser = get_argparser()
@@ -138,26 +167,25 @@ def main():
             'seed': args.seed
         }
     )
-
     if args.mode == 'interactive':
         play_interactive(game)
     elif args.mode == 'demo':
-        play_demo(game)
+        play_demo(game, args.strategy)
     elif args.mode == 'solve':
-        solver_class = STRATEGY_TO_SOLVER.get(args.strategy, GreedySolver)
-        solver = solver_class(game)
-        success, solution_path = solver.solve()
-        
-        if success:
-            print("Solution found! Steps:")
-            for i, state in enumerate(solution_path[1:]):
-                print(
-                    f"Step {i + 1}: Numbers: {state.numbers}, "
-                    f"Target: {state.target}, "
-                    f"Move: {state.move_description}"
-                )
-        else:
-            print("Failed to find a solution.")
+            initialization = input(
+                "Enter n+1 numbers (n numbers, 1 target) separated by spaces " 
+                "to begin (e.g. 1 2 3 4 5 6 means 6 is the target): "
+            ).strip()
+
+            all_numbers = list(map(int, initialization.split()))
+            assert len(all_numbers) >= 3, "At least three numbers (two initial numbers, one target) are required."
+            game.make_from_numbers_and_target(
+                numbers = all_numbers[:-1],
+                target = all_numbers[-1]
+            )
+            play_solve(game, args.strategy)
+
+    
 
 if __name__ == "__main__":
     main()

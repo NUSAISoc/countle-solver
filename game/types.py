@@ -7,7 +7,10 @@ class MoveType(Enum):
     ROLLBACK = "rollback"
 
 class Operation(Enum):
-    """Supported arithmetic operations."""
+    """
+    Supported arithmetic operations.
+    Responsible for tagging invalid operations with `None` results.
+    """
     ADD = ('+', int.__add__)
     SUBTRACT = ('-', lambda a, b: a - b if a >= b else None)
     MULTIPLY = ('*', int.__mul__)

@@ -10,6 +10,11 @@ from game.move import GameMove
 class CountleEngine:
     '''
     Core engine for Countle game logic.
+
+    Noting that all Countle numbers are non-negative integers,
+    we include checks to ensure all results remain in this domain.
+
+    The abstraction is probably not very good, but it will do for now.
     '''
     ROLLBACK_REGEX = r'^(?:rb|rollback)\s+(\d+)$'
     
@@ -42,9 +47,6 @@ class CountleEngine:
 
         self.seed = seed
         self.rng = random.Random(seed)
-
-        self.generate_level()
-        self.reset_history()
         
     @property
     def current_numbers(self) -> List[int]:
@@ -124,17 +126,23 @@ class CountleEngine:
             idx1 = self.current_numbers.index(num1)
             # If num1 == num2, we need to find the second occurrence
             if num1 == num2:
-                idx2 = self.current_numbers.index(num2, idx1 + 1)
+                idx2 = self.current_numbers.index(num2, start = idx1 + 1)
             else:
                 idx2 = self.current_numbers.index(num2)
         except ValueError:
-             return self.REWARDS['invalid'], f"Operands {num1}, {num2} not available in {self.current_numbers}"
+             return (
+                 self.REWARDS['invalid'], 
+                 f"Operands {num1}, {num2} not available in {self.current_numbers}"
+             )
 
         # Step 2: Lookup operation
         operation = Operation.from_symbol(op_symbol)
         if operation is None:
-            return self.REWARDS['invalid'], f"Invalid operation: {op_symbol}"
-        
+            return (
+                self.REWARDS['invalid'],
+                f"Invalid operation: {op_symbol}"
+            )
+
         # Step 3: Validate and compute result
         result = operation.apply(num1, num2)
         
@@ -152,7 +160,7 @@ class CountleEngine:
             return reward, message
         
         # Step 4: Update state
-        reward = -1
+        reward = self.REWARDS['step']
         self.move_count += 1
         
         # Create new numbers list
@@ -235,7 +243,6 @@ class CountleEngine:
             (reward, message) tuple
         """
 
-        # print(f"Executing move: {move.move_type} {move.op1} {move.operation} {move.op2}")
         # Step 1: Route action based on move type
         if move.move_type == MoveType.OPERATION:
             return self.execute_operation(
@@ -275,7 +282,7 @@ class CountleEngine:
             lines.append(f"  {i}. {state.move_description}")
         return "\n".join(lines)
 
-    def generate_target(self, numbers, max_mc_steps = 100) -> int:
+    def generate_target(self, numbers, max_mc_steps = 1_000) -> int:
         '''
         To prevent cheesing and creating overly easy targets, we WANT TO generate
         the target by computing the "numerical closure" of the generated numbers
@@ -288,7 +295,6 @@ class CountleEngine:
         This way a solution is guaranteed, and it is increasingly unlikely
         that some trivial target is chosen as we increase the number of steps.
         '''
-        num_steps = self.rng.randint(self.min_moves, self.n - 1)
         current_numbers = numbers.copy()
 
         howtomake = {tuple(current_numbers): None}
@@ -296,22 +302,21 @@ class CountleEngine:
         approx_closure = {n: 0 for n in current_numbers}
         for _ in range(max_mc_steps):
             temp_numbers = current_numbers.copy()
-            # _move_hist = []
+            
             for step in range(self.n - 1):
                 valid_moves = self.get_valid_moves(temp_numbers)
                 if not valid_moves:
                     break
                 move = self.rng.choice(list(filter(lambda m: m.move_type == MoveType.OPERATION, valid_moves)))
-                # _move_hist.append(str(move))
+                
                 # Update current numbers
                 result = move.operation.apply(move.op1, move.op2)
                 assert result >= 0 and isinstance(result, int), "Generated invalid result in closure computation"
-                # print(f"Sanity check: {move} = {result} on {temp_numbers}")
                 old_numbers = temp_numbers.copy()
                 temp_numbers.remove(move.op1)
                 temp_numbers.remove(move.op2)
                 temp_numbers.append(result)
-                # transitions.add((str(move), tuple(old_numbers), tuple(temp_numbers)))
+                
                 if tuple(temp_numbers) not in howtomake:
                     howtomake[tuple(temp_numbers)] = {}
                 howtomake[tuple(temp_numbers)][str(move)] = tuple(old_numbers)
@@ -319,34 +324,10 @@ class CountleEngine:
                 # Track the result in the approx closure
                 if result < approx_closure.get(result, float('inf')):
                     approx_closure[result] = step + 1  # Store the step count when first reached
-            # print()
-            
-            for step in set(approx_closure.values()):
-                candidates = [num for num, stp in approx_closure.items() if step == stp]
-                # print(f"Candidates reachable only in {step} steps: {candidates}")
-            # print(f"Unique transitions: {transitions}")
         
-        candidates = [num for num, step in approx_closure.items() if num_steps <= step < self.n]
-        # print(f"Generated candidates for target from closure: {candidates}")
+        candidates = [num for num, step in approx_closure.items() if self.min_moves <= step < self.n]
         
         tgt = self.rng.choice(list(set(candidates) - set(numbers)))
-        print(f"Target: {tgt}")
-        
-        for k, v in howtomake.items():
-            if tgt in k:
-                moves = []
-                print(f"One way to make {tgt}:")
-                while v is not None:
-                    # for mv, prev in v.items():
-                    mv, prev = next(iter(v.items()))
-                    moves.append((mv, k))
-                    # print(f"{mv} -> {prev}")
-                    k = prev
-                    v = howtomake.get(k, None)
-
-                moves.reverse()
-                for mv, state in moves:
-                    print(f"{mv} -> {state}")
         return tgt
     
     def generate_level(self) -> GameState:
@@ -358,7 +339,6 @@ class CountleEngine:
         '''
         numbers = [self.rng.randint(1, self.max_number) for _ in range(self.n)]
         target = self.generate_target(numbers)
-
 
         self._internal_state = GameState(
             numbers = numbers, 
@@ -386,6 +366,47 @@ class CountleEngine:
         self.won = (self._internal_state.numbers == [self._internal_state.target])
         self.total_reward = total_reward
         self.move_count = move_count
+        self.reset_history()
+
+
+    @classmethod
+    def create_from_numbers_and_target(
+        cls, 
+        numbers: List[int], 
+        target: int, 
+        seed: int = 42
+    ) -> 'CountleEngine':
+        '''
+        Create a CountleEngine instance from given numbers and target.
+        '''
+        engine = cls(
+            num_numbers = len(numbers),
+            min_moves = 0,  # min_moves is not relevant here
+            max_number = max(numbers + [target]),
+            seed = seed
+        )
+        state = GameState(
+            numbers = numbers,
+            move_history = None,
+            target = target
+        )
+        engine.load_state(state)
+        return engine
+    
+    @classmethod
+    def create_from_state(cls, state: GameState, seed: int = 42) -> 'CountleEngine':
+        '''
+        Create a CountleEngine instance from a given GameState.
+        '''
+        engine = cls(
+            num_numbers = len(state.numbers),
+            min_moves = 0,  # min_moves is not relevant here
+            max_number = max(state.numbers + [state.target]),
+            seed = seed
+        )
+        engine.load_state(state)
+        return engine
+
     
     def parse_human_input(self, input_str: str) -> Optional[Tuple[MoveType, Tuple]]:
         """
